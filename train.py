@@ -32,9 +32,8 @@ def step(model, x, opt_state, key):
 
 # Train the model
 for x, key in zip(ds.take(100).as_numpy_iterator(), random.split(MODEL_KEY, 100)):
-    x = (
-        rearrange(jnp.array(x["image"], dtype=jnp.float32), "b h w c -> b (h w c)")
-        / 255.0
-    )
+    x = jnp.array(x["image"], dtype=jnp.float32) / 255
+    x = rearrange(x, "b h w c -> b c h w")
+    print(x.shape)
     model, opt_state, loss = step(model, x, opt_state, key=key)
     print(loss)
