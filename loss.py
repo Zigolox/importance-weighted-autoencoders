@@ -1,6 +1,5 @@
 import jax.numpy as jnp
 
-from model import VAE
 from jax.random import split
 from jax import vmap
 from jax.scipy.special import logsumexp
@@ -23,7 +22,7 @@ def log_prob_bernoulli(x, x_rec):
 
 
 # Importance weighted loss
-def iwae_loss(model: VAE, x: Array, K: int, key: PRNGKeyArray):
+def iwae_loss(model, x: Array, K: int, key: PRNGKeyArray):
     def loss_fn(x: Array, key: PRNGKeyArray):
         x_rec, mean, logvar = model(x, K, key=key)
         log_p_x_z = log_prob_bernoulli(x, sigmoid(x_rec))

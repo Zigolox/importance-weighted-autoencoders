@@ -17,14 +17,16 @@ from typing import Tuple
 # Create layers from activation functions
 
 Celu = Lambda(celu)
+Tanh = Lambda(jnp.tanh)
 
 Flatten = Lambda(partial(rearrange, pattern='c h w -> (c h w)'))
 Split = Lambda(partial(rearrange, pattern='(p c) -> p c', p=2))
 CreateGrid = Lambda(partial(rearrange, pattern='(c h w) -> c h w', c=512, h=2, w=2))
+Unflatten = Lambda(partial(rearrange, pattern='(c h w) -> c h w', h=28, w=28))
 # Variational autoencoder
 
 # Encoder
-class Encoder(Sequential):
+class ConvolutionalEncoder(Sequential):
     def __init__(self, key: PRNGKeyArray):
         keys = split(key, 6)
         super().__init__(
@@ -47,7 +49,7 @@ class Encoder(Sequential):
 
 
 # Decoder
-class Decoder(Sequential):
+class ConvolutionalDecoder(Sequential):
     def __init__(self, key: PRNGKeyArray):
         keys = split(key, 3)
         super().__init__(
@@ -67,14 +69,14 @@ class Decoder(Sequential):
 
 
 # VAE
-class VAE(Module):
-    encoder: Encoder
-    decoder: Decoder
+class IWAE(Module):
+    encoder: ConvolutionalEncoder
+    decoder: ConvolutionalDecoder
 
     def __init__(self, key: PRNGKeyArray):
         enc_key, dec_key = split(key)
-        self.encoder = Encoder(enc_key)
-        self.decoder = Decoder(dec_key)
+        self.encoder = ConvolutionalEncoder(enc_key)
+        self.decoder = ConvolutionalDecoder(dec_key)
 
     def __call__(self, x, K: int, key: PRNGKeyArray):
 
@@ -94,3 +96,54 @@ class VAE(Module):
         eps = normal(key, shape=shape)
         # Reparameterization trick
         return eps * std + mean
+
+
+class LinearEncoder(Sequential):
+    def __init__(self, key: PRNGKeyArray):
+        keys = split(key, 3)
+        super().__init__(
+            [
+                Flatten,
+                Linear(784, 200, key=keys[0]),
+                Tanh,
+                Linear(200, 200, key=keys[1]),
+                Tanh,
+                Linear(200, 100, key=keys[2]),
+                Split,
+            ]
+        )
+
+
+class LinearDecoder(Sequential):
+    def __init__(self, key: PRNGKeyArray):
+        keys = split(key, 2)
+        super().__init__(
+            [
+                Linear(50, 200, key=keys[0]),
+                Tanh,
+                Linear(200, 200, key=keys[1]),
+                Tanh,
+                Linear(200, 784, key=keys[2]),
+                Unflatten,
+            ]
+        )
+
+
+class LinearIWAE(IWAE):
+    encoder: LinearEncoder
+    decoder: LinearDecoder
+
+    def __init__(self, key: PRNGKeyArray):
+        enc_key, dec_key = split(key)
+        self.encoder = LinearEncoder(enc_key)
+        self.decoder = LinearDecoder(dec_key)
+
+
+class ConvoluationalIWAE(IWAE):
+    encoder: ConvolutionalEncoder
+    decoder: ConvolutionalDecoder
+
+    def __init__(self, key: PRNGKeyArray):
+        enc_key, dec_key = split(key)
+        self.encoder = ConvolutionalEncoder(enc_key)
+        self.decoder = ConvolutionalDecoder(dec_key)

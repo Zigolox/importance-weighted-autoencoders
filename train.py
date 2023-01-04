@@ -4,7 +4,7 @@ from optax import adam, apply_updates
 from einops import rearrange
 import equinox as eqx
 
-from model import VAE
+from model import LinearIWAE, ConvoluationalIWAE
 from loss import iwae_loss
 import tensorflow_datasets as tfds
 
@@ -16,7 +16,7 @@ ds = dataset.shuffle(1024).batch(128).prefetch(1)
 # dataset = dataset.batch(128).prefetch(1)
 
 # Initialize the model
-model = VAE(key=MODEL_KEY)
+model = ConvoluationalIWAE(key=MODEL_KEY)
 
 # Initialize the optimizer
 optim = adam(1e-4)
