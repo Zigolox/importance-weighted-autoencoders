@@ -1,35 +1,103 @@
 import jax.numpy as jnp
 
+from distrax import Normal, Bernoulli
 from jax.random import split
 from jax import vmap
 from jax.scipy.special import logsumexp
 from jax.nn import sigmoid
-from einops import rearrange
+from einops import reduce, repeat
 
 # Typing
 from jax.random import PRNGKeyArray
 from jax import Array
 
 
-def kl_divergence(mu, logvar):
-    """The KL divergence between a normal distribution and a standard normal distribution."""
-    return -0.5 * jnp.sum(1 + logvar - mu ** 2 - jnp.exp(logvar))
+def vae_loss(model, x: Array, key: PRNGKeyArray) -> Array:
+    '''Compute the VAE loss.'''
 
-
-def log_prob_bernoulli(x, x_rec):
-    """Log probability of a Bernoulli distribution for one sample."""
-    return jnp.sum(x * jnp.log(x_rec) + (1 - x) * jnp.log(1 - x_rec), axis=(1, 2, 3))
-
-
-# Importance weighted loss
-def iwae_loss(model, x: Array, K: int, key: PRNGKeyArray):
     def loss_fn(x: Array, key: PRNGKeyArray):
-        x_rec, mean, logvar = model(x, K, key=key)
-        log_p_x_z = log_prob_bernoulli(x, sigmoid(x_rec))
-        log_q_z_x = -kl_divergence(mean, logvar)
-        # log p(x|z) + log p(z) - log q(z|x)
-        log_w = log_p_x_z + log_q_z_x
-        return -logsumexp(log_w, axis=0) - jnp.log(K)
+
+        x_rec, _, mean, logvar = model(x, 1, key=key)  # K=1
+
+        # Remove the K dimension
+        x_rec = x_rec.squeeze(0)
+
+        # Posterior p_{\theta}(z|x)
+        post = Normal(jnp.zeros_like(mean), jnp.ones_like(logvar))
+
+        # Approximate posterior q_{\phi}(z|x)
+        latent = Normal(mean, jnp.exp(1 / 2 * logvar))
+
+        # Likelihood p_{\theta}(x|z)
+        likelihood = Bernoulli(logits=x_rec)
+
+        # KL divergence
+        kl_div = reduce(latent.kl_divergence(post), 'n -> ()', 'sum')
+
+        # Log-likelihood or reconstruction loss
+        like = reduce(likelihood.log_prob(x), 'c h w -> ()', 'sum')
+
+        # ELBO
+        return -(like - kl_div)
 
     keys = split(key, x.shape[0])
+    # Mean over the batch
+    return jnp.mean(vmap(loss_fn)(x, keys))
+
+
+def iwae_loss(model, x: Array, K: int, key: PRNGKeyArray) -> Array:
+    '''Compute the IWELBO loss.'''
+
+    def loss_fn(x: Array, key: PRNGKeyArray):
+
+        x_rec, z, mean, logvar = model(x, K, key=key)
+
+        def log_importance_weight(x_rec, z):
+            # Compute importance weights
+            log_q_z_x = reduce(Normal(mean, jnp.exp(1 / 2 * logvar)).log_prob(z), 'l -> ', 'sum')
+            log_p_z = reduce(Normal(jnp.zeros_like(mean), jnp.ones_like(logvar)).log_prob(z), 'l -> ', 'sum')
+            log_p_x_z = reduce(Bernoulli(logits=x_rec).log_prob(x), 'c h w -> ', 'sum')
+            return log_p_x_z + log_p_z - log_q_z_x
+
+        log_iw = vmap(log_importance_weight)(x_rec, z)
+        # Marginalize log likelihood
+        return reduce(log_iw, 'k -> ', logsumexp) - jnp.log(K)
+
+    keys = split(key, x.shape[0])
+    # Mean over the batch
+    return -jnp.mean(vmap(loss_fn)(x, keys))
+
+
+def old_iwae_loss(model, x, K: int, key: PRNGKeyArray) -> float:
+    '''Compute the IWELBO loss.'''
+
+    def loss_fn(x: Array, key: PRNGKeyArray):
+
+        x_rec, _, mean, logvar = model(x, K, key=key)
+        # Posterior p_{\theta}(z|x)
+        post = Normal(jnp.zeros_like(mean), jnp.ones_like(logvar))
+
+        # Approximate posterior q_{\phi}(z|x)
+        latent = Normal(mean, jnp.exp(1 / 2 * logvar))
+
+        # Likelihood p_{\theta}(x|z)
+        likelihood = Bernoulli(logits=x_rec)
+
+        # KL divergence
+        kl_div = reduce(latent.kl_divergence(post), 'n -> ()', 'sum')
+
+        # Repeat samples for broadcasting
+        kl_div = repeat(kl_div, '() -> k', k=K)
+        xs = repeat(x, 'c h w -> k c h w', k=K)
+
+        # Log-likelihood or reconstruction loss
+        like = reduce(likelihood.log_prob(xs), 'k c h w -> k', 'sum')
+
+        # Importance weights
+        iw_loss = reduce(like - kl_div, 'k -> ()', logsumexp) - jnp.log(K)
+
+        return -iw_loss
+
+    keys = split(key, x.shape[0])
+    # Mean over the batch
     return jnp.mean(vmap(loss_fn)(x, keys))

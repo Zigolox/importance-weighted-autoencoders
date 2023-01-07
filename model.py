@@ -89,7 +89,7 @@ class IWAE(Module):
         # Decode
         x = vmap(self.decoder)(z)
 
-        return x, mean, logvar
+        return x, z, mean, logvar
 
     def sample(self, mean: Array, logvar: Array, shape: Tuple, key: PRNGKeyArray):
         std = jnp.exp(0.5 * logvar)
@@ -139,7 +139,7 @@ class LinearIWAE(IWAE):
         self.decoder = LinearDecoder(dec_key)
 
 
-class ConvoluationalIWAE(IWAE):
+class ConvolutionalIWAE(IWAE):
     encoder: ConvolutionalEncoder
     decoder: ConvolutionalDecoder
 
