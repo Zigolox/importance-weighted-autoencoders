@@ -26,7 +26,7 @@ opt_state = optim.init(eqx.filter(model, eqx.is_array))
 # Step function
 @eqx.filter_jit
 def step(model, x, opt_state, key):
-    loss, grad = eqx.filter_value_and_grad(vae_loss)(model, x, key=key)
+    loss, grad = eqx.filter_value_and_grad(vae_loss)(model, x, 10, key=key)
     updates, opt_state = optim.update(grad, opt_state, model)
     model = eqx.apply_updates(model, updates)
     return model, opt_state, loss

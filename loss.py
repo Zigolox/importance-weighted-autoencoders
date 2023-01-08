@@ -4,7 +4,6 @@ from distrax import Normal, Bernoulli
 from jax.random import split
 from jax import vmap
 from jax.scipy.special import logsumexp
-from jax.nn import sigmoid
 from einops import reduce, repeat
 
 # Typing
@@ -12,15 +11,12 @@ from jax.random import PRNGKeyArray
 from jax import Array
 
 
-def vae_loss(model, x: Array, key: PRNGKeyArray) -> Array:
+def vae_loss(model, x: Array, K: int, key: PRNGKeyArray) -> Array:
     '''Compute the VAE loss.'''
 
     def loss_fn(x: Array, key: PRNGKeyArray):
 
-        x_rec, _, mean, logvar = model(x, 1, key=key)  # K=1
-
-        # Remove the K dimension
-        x_rec = x_rec.squeeze(0)
+        x_rec, _, mean, logvar = model(x, K, key=key)
 
         # Posterior p_{\theta}(z|x)
         post = Normal(jnp.zeros_like(mean), jnp.ones_like(logvar))
@@ -35,7 +31,7 @@ def vae_loss(model, x: Array, key: PRNGKeyArray) -> Array:
         kl_div = reduce(latent.kl_divergence(post), 'n -> ()', 'sum')
 
         # Log-likelihood or reconstruction loss
-        like = reduce(likelihood.log_prob(x), 'c h w -> ()', 'sum')
+        like = reduce(likelihood.log_prob(x), 'k c h w -> k', 'sum')
 
         # ELBO
         return -(like - kl_div)
